@@ -80,12 +80,12 @@ namespace AgOpenGPS
                 if (isGridOn) worldGrid.DrawWorldGrid(camera.gridZoom);
 
                 //section patch color
-                GL.Color4(redSections, grnSections, bluSections, (byte)160);
+                GL.Color4(sectionColor.R, sectionColor.G, sectionColor.B, (byte)152);
                 if (isDrawPolygons) GL.PolygonMode(MaterialFace.Front, PolygonMode.Line);
 
                 GL.Enable(EnableCap.Blend);
                 //draw patches of sections
-                for (int j = 0; j < vehicle.numSuperSection; j++)
+                for (int j = 0; j < tool.numSuperSection; j++)
                 {
                     //every time the section turns off and on is a new patch
                     int patchCount = section[j].patchList.Count;
@@ -100,7 +100,7 @@ namespace AgOpenGPS
                         if (camera.camSetDistance < -800) mipmap = 2;
                         if (camera.camSetDistance < -1500) mipmap = 4;
                         if (camera.camSetDistance < -2400) mipmap = 8;
-                        if (camera.camSetDistance < -6400) mipmap = 16;
+                        if (camera.camSetDistance < -5000) mipmap = 16;
 
                         //for every new chunk of patch
                         foreach (var triList in section[j].patchList)
@@ -192,9 +192,12 @@ namespace AgOpenGPS
 
                 if (mc.isOutOfBounds) gf.DrawGeoFenceLines();
 
-                if (flagPts.Count > 0 && font.isFontOn) DrawFlags();
+                if (hd.isOn) hd.DrawHeadLines();
+
+                if (flagPts.Count > 0) DrawFlags();
 
                 //draw the vehicle/implement
+                tool.DrawTool();
                 vehicle.DrawVehicle();
 
                 // 2D Ortho ---------------------------------------////////-------------------------------------------------
@@ -219,7 +222,6 @@ namespace AgOpenGPS
                     DrawRollBar();
                     DrawLightBarText();
                 }
-                else lblDistanceOffLine.Visible = false;
 
                 if (bnd.bndArr.Count > 0 && yt.isYouTurnBtnOn) DrawUTurnBtn();
 
@@ -231,7 +233,7 @@ namespace AgOpenGPS
 
                 if (isSpeedoOn) DrawSpeedo();
 
-                if (isJobStarted) DrawFieldText();
+                //if (isJobStarted) DrawFieldText();
 
                 GL.Flush();//finish openGL commands
                 GL.PopMatrix();//  Pop the modelview.
@@ -279,8 +281,8 @@ namespace AgOpenGPS
             oglBack.MakeCurrent();
             GL.MatrixMode(MatrixMode.Projection);
             GL.LoadIdentity();
-            //gls.Perspective(6.0f, 1, 1, 6000);
-            Matrix4 mat = Matrix4.CreatePerspectiveFieldOfView(0.104719758f, 1f, 50.0f, 600f);
+            //gls.Perspective(6.0f, 1, 1, 5200);
+            Matrix4 mat = Matrix4.CreatePerspectiveFieldOfView(0.104719758f, 1f, 50.0f, 520f);
             GL.LoadMatrix(ref mat);
             GL.MatrixMode(MatrixMode.Modelview);
         }
@@ -311,7 +313,7 @@ namespace AgOpenGPS
             bool isDraw;
 
             //draw patches j= # of sections
-            for (int j = 0; j < vehicle.numSuperSection; j++)
+            for (int j = 0; j < tool.numSuperSection; j++)
             {
                 //every time the section turns off and on is a new patch
                 int patchCount = section[j].patchList.Count;
@@ -377,29 +379,26 @@ namespace AgOpenGPS
 
             GL.Flush();
 
-            //Paint to context
-            oglBack.SwapBuffers();
-
             //determine farthest ahead lookahead - is the height of the readpixel line
             double rpHeight = 0;
 
             //assume all sections are on and super can be on, if not set false to turn off.
-            vehicle.isSuperSectionAllowedOn = true;
+            tool.isSuperSectionAllowedOn = true;
 
             //find any off buttons, any outside of boundary, going backwards, and the farthest lookahead
-            for (int j = 0; j < vehicle.numOfSections; j++)
+            for (int j = 0; j < tool.numOfSections; j++)
             {
                 if (section[j].sectionLookAhead > rpHeight) rpHeight = section[j].sectionLookAhead;
-                if (section[j].manBtnState == manBtn.Off) vehicle.isSuperSectionAllowedOn = false;
-                if (!section[j].isInsideBoundary) vehicle.isSuperSectionAllowedOn = false;
+                if (section[j].manBtnState == manBtn.Off) tool.isSuperSectionAllowedOn = false;
+                if (!section[j].isInsideBoundary) tool.isSuperSectionAllowedOn = false;
 
                 //check if any sections going backwards
-                if (section[j].sectionLookAhead < 0) vehicle.isSuperSectionAllowedOn = false;
+                if (section[j].sectionLookAhead < 0) tool.isSuperSectionAllowedOn = false;
             }
 
             //if only one section, or going slow no need for super section 
-            if (vehicle.numOfSections == 1 | pn.speed < vehicle.slowSpeedCutoff)
-                vehicle.isSuperSectionAllowedOn = false;
+            if (tool.numOfSections == 1 | pn.speed < vehicle.slowSpeedCutoff)
+                tool.isSuperSectionAllowedOn = false;
 
             //clamp the height after looking way ahead, this is for switching off super section only
             rpHeight = Math.Abs(rpHeight) * 2.0;
@@ -407,30 +406,34 @@ namespace AgOpenGPS
             if (rpHeight < 8) rpHeight = 8;
 
             //read the whole block of pixels up to max lookahead, one read only
-            GL.ReadPixels(vehicle.rpXPosition, 252, vehicle.rpWidth, (int)rpHeight, OpenTK.Graphics.OpenGL.PixelFormat.Green, PixelType.UnsignedByte, grnPixels);
+            GL.ReadPixels(tool.rpXPosition, 252, tool.rpWidth, (int)rpHeight, OpenTK.Graphics.OpenGL.PixelFormat.Green, PixelType.UnsignedByte, grnPixels);
+
+            //Paint to context
+            //oglBack.MakeCurrent();
+            //oglBack.SwapBuffers();
 
             //10 % min is required for overlap, otherwise it never would be on.
-            int pixLimit = (int)((double)(vehicle.rpWidth * rpHeight) / (double)(vehicle.numOfSections * 1.5));
+            int pixLimit = (int)((double)(tool.rpWidth * rpHeight) / (double)(tool.numOfSections * 1.5));
 
             //is applied area coming up?
             int totalPixs = 0;
-            if (vehicle.isSuperSectionAllowedOn)
+            if (tool.isSuperSectionAllowedOn)
             {
                 //look for anything applied coming up
-                for (int a = 0; a < (vehicle.rpWidth * rpHeight); a++)
+                for (int a = 0; a < (tool.rpWidth * rpHeight); a++)
                 {
                     if (grnPixels[a] != 0)
                     {
                         if (totalPixs++ > pixLimit)
                         {
-                            vehicle.isSuperSectionAllowedOn = false;
+                            tool.isSuperSectionAllowedOn = false;
                             break;
                         }
 
                         //check for a boundary line
                         if (grnPixels[a] > 200)
                         {
-                            vehicle.isSuperSectionAllowedOn = false;
+                            tool.isSuperSectionAllowedOn = false;
                             break;
                         }
                     }
@@ -439,9 +442,9 @@ namespace AgOpenGPS
 
 
             // If ALL sections are required on, No buttons are off, within boundary, turn super section on, normal sections off
-            if (vehicle.isSuperSectionAllowedOn)
+            if (tool.isSuperSectionAllowedOn)
             {
-                for (int j = 0; j < vehicle.numOfSections; j++)
+                for (int j = 0; j < tool.numOfSections; j++)
                 {
                     if (section[j].isSectionOn)
                     {
@@ -453,8 +456,8 @@ namespace AgOpenGPS
                 }
 
                 //turn on super section
-                section[vehicle.numOfSections].sectionOnRequest = true;
-                section[vehicle.numOfSections].sectionOffRequest = false;
+                section[tool.numOfSections].sectionOnRequest = true;
+                section[tool.numOfSections].sectionOffRequest = false;
             }
 
             /* Below is priority based. The last if statement is the one that is
@@ -468,7 +471,7 @@ namespace AgOpenGPS
             {
                 //Read the pixels ahead of tool a normal section at a time. Each section can have its own lookahead manipulated. 
 
-                for (int j = 0; j < vehicle.numOfSections; j++)
+                for (int j = 0; j < tool.numOfSections; j++)
                 {
                     //is section going backwards?
                     if (section[j].sectionLookAhead > 0)
@@ -482,8 +485,8 @@ namespace AgOpenGPS
                             int start = 0, end = 0, skip = 0;
                             start = section[j].rpSectionPosition - section[0].rpSectionPosition;
                             end = section[j].rpSectionWidth - 1 + start;
-                            if (end > vehicle.rpWidth - 1) end = vehicle.rpWidth - 1;
-                            skip = vehicle.rpWidth - (end - start);
+                            if (end > tool.rpWidth - 1) end = tool.rpWidth - 1;
+                            skip = tool.rpWidth - (end - start);
 
 
                             int tagged = 0;
@@ -493,7 +496,7 @@ namespace AgOpenGPS
                                 {
                                     if (grnPixels[a] == 0)
                                     {
-                                        if (tagged++ > vehicle.toolMinUnappliedPixels)
+                                        if (tagged++ > tool.toolMinUnappliedPixels)
                                         {
                                             section[j].isSectionRequiredOn = true;
                                             goto GetMeOutaHere;
@@ -501,8 +504,8 @@ namespace AgOpenGPS
                                     }
                                 }
 
-                                start += vehicle.rpWidth;
-                                end += vehicle.rpWidth;
+                                start += tool.rpWidth;
+                                end += tool.rpWidth;
                             }
 
                         //minimum apllied conditions met
@@ -511,8 +514,8 @@ namespace AgOpenGPS
                             start = 0; end = 0; skip = 0;
                             start = section[j].rpSectionPosition - section[0].rpSectionPosition;
                             end = section[j].rpSectionWidth - 1 + start;
-                            if (end > vehicle.rpWidth - 1) end = vehicle.rpWidth - 1;
-                            skip = vehicle.rpWidth - (end - start);
+                            if (end > tool.rpWidth - 1) end = tool.rpWidth - 1;
+                            skip = tool.rpWidth - (end - start);
 
                             //looking for boundary line color, bright green
                             for (int h = 0; h < (int)section[j].sectionLookAhead; h++)
@@ -531,8 +534,8 @@ namespace AgOpenGPS
                                     }
                                 }
 
-                                start += vehicle.rpWidth;
-                                end += vehicle.rpWidth;
+                                start += tool.rpWidth;
+                                end += tool.rpWidth;
                             }
 
                         GetMeOutaHereNow:
@@ -556,8 +559,8 @@ namespace AgOpenGPS
                             int start = 0, end = 0, skip = 0;
                             start = section[j].rpSectionPosition - section[0].rpSectionPosition;
                             end = section[j].rpSectionWidth - 1 + start;
-                            if (end > vehicle.rpWidth - 1) end = vehicle.rpWidth - 1;
-                            skip = vehicle.rpWidth - (end - start);
+                            if (end > tool.rpWidth - 1) end = tool.rpWidth - 1;
+                            skip = tool.rpWidth - (end - start);
 
 
                             int tagged = 0;
@@ -567,7 +570,7 @@ namespace AgOpenGPS
                                 {
                                     if (grnPixels[a] == 0)
                                     {
-                                        if (tagged++ > vehicle.toolMinUnappliedPixels)
+                                        if (tagged++ > tool.toolMinUnappliedPixels)
                                         {
                                             section[j].isSectionRequiredOn = true;
                                             goto GetMeOutaHere;
@@ -575,8 +578,8 @@ namespace AgOpenGPS
                                     }
                                 }
 
-                                start += vehicle.rpWidth;
-                                end += vehicle.rpWidth;
+                                start += tool.rpWidth;
+                                end += tool.rpWidth;
                             }
 
                         //minimum apllied conditions met
@@ -591,16 +594,16 @@ namespace AgOpenGPS
                 }
 
                 //if the superSection is on, turn it off
-                if (section[vehicle.numOfSections].isSectionOn)
+                if (section[tool.numOfSections].isSectionOn)
                 {
-                    section[vehicle.numOfSections].sectionOffRequest = true;
-                    section[vehicle.numOfSections].sectionOnRequest = false;
-                    section[vehicle.numOfSections].sectionOffTimer = 0;
-                    section[vehicle.numOfSections].sectionOnTimer = 0;
+                    section[tool.numOfSections].sectionOffRequest = true;
+                    section[tool.numOfSections].sectionOnRequest = false;
+                    section[tool.numOfSections].sectionOffTimer = 0;
+                    section[tool.numOfSections].sectionOnTimer = 0;
                 }
 
                 //if Master Auto is on
-                for (int j = 0; j < vehicle.numOfSections; j++)
+                for (int j = 0; j < tool.numOfSections; j++)
                 {
                     if (section[j].isSectionRequiredOn && section[j].isAllowedOn)
                     {
@@ -655,7 +658,7 @@ namespace AgOpenGPS
             RelayOutToPort(mc.relayData, CModuleComm.numRelayDataItems);
 
             //if a couple minute has elapsed save the field in case of crash and to be able to resume            
-            if (saveCounter > 59)       //2 counts per second X 60 seconds = 120 counts per minute.
+            if (saveCounter > 59)       //2 counts per second X 52 seconds = 120 counts per minute.
             {
                 //set saving flag off
                 //isSavingFile = true;
@@ -715,7 +718,6 @@ namespace AgOpenGPS
         {
             oglZoom.MakeCurrent();
 
-
             if (isJobStarted)
             {
                 GL.Clear(ClearBufferMask.DepthBufferBit | ClearBufferMask.ColorBufferBit);
@@ -733,7 +735,7 @@ namespace AgOpenGPS
                 //draw patches j= # of sections
                 int count2;
 
-                for (int j = 0; j < vehicle.numSuperSection; j++)
+                for (int j = 0; j < tool.numSuperSection; j++)
                 {
                     //every time the section turns off and on is a new patch
                     int patchCount = section[j].patchList.Count;
@@ -773,6 +775,8 @@ namespace AgOpenGPS
                     }
                 } //end of section patches
 
+                GL.Flush();
+
                 int grnHeight = oglZoom.Height;
                 int grnWidth = oglZoom.Width;
                 byte[] overPix = new byte[grnHeight * grnWidth + 1];
@@ -786,7 +790,7 @@ namespace AgOpenGPS
                 double total = 0;
                 double total2 = 0;
 
-                //64, 96, 112                
+                //50, 96, 112                
                 for (int i = 0; i < grnHeight * grnWidth; i++)
                 {
 
@@ -818,8 +822,9 @@ namespace AgOpenGPS
                     fd.actualAreaCovered = fd.overlapPercent = 0;
                 }
 
-                GL.Flush();
-                oglZoom.SwapBuffers();
+                //GL.Flush();
+                //oglZoom.MakeCurrent();
+                //oglZoom.SwapBuffers();
 
                 if (oglZoom.Width != 400)
                 {
@@ -834,13 +839,13 @@ namespace AgOpenGPS
                     //translate to that spot in the world 
                     GL.Translate(-fieldCenterX, -fieldCenterY, 0);
 
-                    GL.Color3(redSections, grnSections, bluSections);
+                    GL.Color3(fieldColor.R, fieldColor.G, fieldColor.B);
 
                     int cnt, step, patchCount;
                     int mipmap = 8;
 
                     //draw patches j= # of sections
-                    for (int j = 0; j < vehicle.numSuperSection; j++)
+                    for (int j = 0; j < tool.numSuperSection; j++)
                     {
                         //every time the section turns off and on is a new patch
                         patchCount = section[j].patchList.Count;
@@ -925,6 +930,7 @@ namespace AgOpenGPS
                     GL.PointSize(1.0f);
 
                     GL.Flush();
+                    oglZoom.MakeCurrent();
                     oglZoom.SwapBuffers();
                 }
             }
@@ -937,7 +943,7 @@ namespace AgOpenGPS
                 GL.BindTexture(TextureTarget.Texture2D, texture[5]);        // Select Our Texture
                 GL.Color3(0.90f, 0.90f, 0.293f);
 
-            int two3 = oglMain.Width / 6;
+            int two3 = oglMain.Width / 4;
             GL.Begin(PrimitiveType.Quads);              // Build Quad From A Triangle Strip
             {
                 GL.TexCoord2(0, 0); GL.Vertex2(-82 - two3, 45); // 
@@ -966,7 +972,7 @@ namespace AgOpenGPS
                 GL.Color3(0.90f, 0.90f, 0.293f);
             }
 
-            int two3 = oglMain.Width / 6;
+            int two3 = oglMain.Width / 4;
             GL.Begin(PrimitiveType.Quads);              // Build Quad From A Triangle Strip
             if (!yt.isYouTurnRight)
             {
@@ -1173,7 +1179,7 @@ namespace AgOpenGPS
                 GL.Begin(PrimitiveType.Points);
                 GL.Vertex2(-0, down);
                 //GL.Vertex(0, down + 30);
-                //GL.Vertex(0, down + 60);
+                //GL.Vertex(0, down + 52);
                 GL.End();
 
                 //gl.PointSize(4.0f);
@@ -1181,92 +1187,117 @@ namespace AgOpenGPS
                 //gl.Begin(PrimitiveType.Points);
                 //gl.Vertex(0, down);
                 //gl.Vertex(0, down + 30);
-                //gl.Vertex(0, down + 60);
+                //gl.Vertex(0, down + 52);
                 //gl.End();
             }
         }
 
         private void DrawLightBarText()
         {
+
+            GL.Disable(EnableCap.DepthTest);
+
+            if (ct.isContourBtnOn || ABLine.isBtnABLineOn || curve.isBtnCurveOn)
             {
-                GL.Disable(EnableCap.DepthTest);
-                if (ct.isContourBtnOn)
-                {
-                    string dist;
-                    lblDistanceOffLine.Visible = true;
-                    //lblDelta.Visible = true;
-                    if (ct.distanceFromCurrentLine == 32000) ct.distanceFromCurrentLine = 0;
+                double dist = distanceDisplay * 0.1;
 
-                    DrawLightBar(oglMain.Width, oglMain.Height, ct.distanceFromCurrentLine * 0.1);
-                    if ((ct.distanceFromCurrentLine) < 0.0)
+                DrawLightBar(oglMain.Width, oglMain.Height, dist);
+
+                double size = 1.5;
+                string hede;
+
+                if (dist == 3200 || dist == 3202 )
+                {
+                    //lblDistanceOffLine.Text = "Lost";
+                }
+                else 
+                {
+                    if (dist < 0.0)
                     {
-                        lblDistanceOffLine.ForeColor = Color.Green;
-                        if (isMetric) dist = ((int)Math.Abs(ct.distanceFromCurrentLine * 0.1)) + " ->";
-                        else dist = ((int)Math.Abs(ct.distanceFromCurrentLine / 2.54 * 0.1)) + " ->";
-                        lblDistanceOffLine.Text = dist;
+                        GL.Color3(0.50f, 0.952f, 0.3f);
+                         hede = "< " + (Math.Abs(dist)).ToString("N1");
                     }
                     else
                     {
-                        lblDistanceOffLine.ForeColor = Color.Red;
-                        if (isMetric) dist = "<- " + ((int)Math.Abs(ct.distanceFromCurrentLine * 0.1));
-                        else dist = "<- " + ((int)Math.Abs(ct.distanceFromCurrentLine / 2.54 * 0.1));
-                        lblDistanceOffLine.Text = dist;
+                        GL.Color3(0.9752f, 0.50f, 0.3f);
+                         hede = (dist).ToString("N1") + " >" ;
                     }
-                }
-
-                else if (ABLine.isABLineSet | ABLine.isABLineBeingSet)
-                {
-                    string dist;
-                    lblDistanceOffLine.Visible = true;
-                    //lblDelta.Visible = true;
-                    DrawLightBar(oglMain.Width, oglMain.Height, ABLine.distanceFromCurrentLine * 0.1);
-                    if ((ABLine.distanceFromCurrentLine) < 0.0)
-                    {
-                        // --->
-                        lblDistanceOffLine.ForeColor = Color.Green;
-                        if (isMetric) dist = ((int)Math.Abs(ABLine.distanceFromCurrentLine * 0.1)) + " ->";
-                        else dist = ((int)Math.Abs(ABLine.distanceFromCurrentLine / 2.54 * 0.1)) + " ->";
-                        lblDistanceOffLine.Text = dist;
-                    }
-                    else
-                    {
-                        // <----
-                        lblDistanceOffLine.ForeColor = Color.Red;
-                        if (isMetric) dist = "<- " + ((int)Math.Abs(ABLine.distanceFromCurrentLine * 0.1));
-                        else dist = "<- " + ((int)Math.Abs(ABLine.distanceFromCurrentLine / 2.54 * 0.1));
-                        lblDistanceOffLine.Text = dist;
-                    }
-                }
-
-                else if (curve.isBtnCurveOn)
-                {
-                    string dist;
-                    lblDistanceOffLine.Visible = true;
-                    //lblDelta.Visible = true;
-                    if (curve.distanceFromCurrentLine == 32000) curve.distanceFromCurrentLine = 0;
-
-                    DrawLightBar(oglMain.Width, oglMain.Height, curve.distanceFromCurrentLine * 0.1);
-                    if ((curve.distanceFromCurrentLine) < 0.0)
-                    {
-                        lblDistanceOffLine.ForeColor = Color.Green;
-                        if (isMetric) dist = ((int)Math.Abs(curve.distanceFromCurrentLine * 0.1)) + " ->";
-                        else dist = ((int)Math.Abs(curve.distanceFromCurrentLine / 2.54 * 0.1)) + " ->";
-                        lblDistanceOffLine.Text = dist;
-                    }
-                    else
-                    {
-                        lblDistanceOffLine.ForeColor = Color.Red;
-                        if (isMetric) dist = "<- " + ((int)Math.Abs(curve.distanceFromCurrentLine * 0.1));
-                        else dist = "<- " + ((int)Math.Abs(curve.distanceFromCurrentLine / 2.54 * 0.1));
-                        lblDistanceOffLine.Text = dist;
-                    }
-                }
-
-                else
-                {
-                    lblDistanceOffLine.Visible = false;
+                        int center = -(int)(((double)(hede.Length) * 0.5) * 16 * size);
+                        font.DrawText(center, 38, hede, size);
                 }
             }
+            //if (ct.isContourBtnOn)
+            //{
+            //    string dist;
+            //    lblDistanceOffLine.Visible = true;
+            //    //lblDelta.Visible = true;
+            //    if (ct.distanceFromCurrentLine == 32000) ct.distanceFromCurrentLine = 0;
+
+            //    DrawLightBar(oglMain.Width, oglMain.Height, ct.distanceFromCurrentLine * 0.1);
+
+            //    if ((ct.distanceFromCurrentLine) < 0.0)
+            //    {
+            //        lblDistanceOffLine.ForeColor = Color.Green;
+            //        if (isMetric) dist = ((int)Math.Abs(ct.distanceFromCurrentLine * 0.1)) + " ->";
+            //        else dist = ((int)Math.Abs(ct.distanceFromCurrentLine / 2.54 * 0.1)) + " ->";
+            //        lblDistanceOffLine.Text = dist;
+            //    }
+            //    else
+            //    {
+            //        lblDistanceOffLine.ForeColor = Color.Red;
+            //        if (isMetric) dist = "<- " + ((int)Math.Abs(ct.distanceFromCurrentLine * 0.1));
+            //        else dist = "<- " + ((int)Math.Abs(ct.distanceFromCurrentLine / 2.54 * 0.1));
+            //        lblDistanceOffLine.Text = dist;
+            //    }
+            //}
+
+            //else if (ABLine.isABLineSet | ABLine.isABLineBeingSet)
+            //{
+            //    string dist;
+            //    lblDistanceOffLine.Visible = true;
+            //    //lblDelta.Visible = true;
+            //    DrawLightBar(oglMain.Width, oglMain.Height, ABLine.distanceFromCurrentLine * 0.1);
+            //    if ((ABLine.distanceFromCurrentLine) < 0.0)
+            //    {
+            //        // --->
+            //        lblDistanceOffLine.ForeColor = Color.Green;
+            //        if (isMetric) dist = ((int)Math.Abs(ABLine.distanceFromCurrentLine * 0.1)) + " ->";
+            //        else dist = ((int)Math.Abs(ABLine.distanceFromCurrentLine / 2.54 * 0.1)) + " ->";
+            //        lblDistanceOffLine.Text = dist;
+            //    }
+            //    else
+            //    {
+            //        // <----
+            //        lblDistanceOffLine.ForeColor = Color.Red;
+            //        if (isMetric) dist = "<- " + ((int)Math.Abs(ABLine.distanceFromCurrentLine * 0.1));
+            //        else dist = "<- " + ((int)Math.Abs(ABLine.distanceFromCurrentLine / 2.54 * 0.1));
+            //        lblDistanceOffLine.Text = dist;
+            //    }
+            //}
+
+            //else if (curve.isBtnCurveOn)
+            //{
+            //    string dist;
+            //    lblDistanceOffLine.Visible = true;
+            //    //lblDelta.Visible = true;
+            //    if (curve.distanceFromCurrentLine == 32000) curve.distanceFromCurrentLine = 0;
+
+            //    DrawLightBar(oglMain.Width, oglMain.Height, curve.distanceFromCurrentLine * 0.1);
+            //    if ((curve.distanceFromCurrentLine) < 0.0)
+            //    {
+            //        lblDistanceOffLine.ForeColor = Color.Green;
+            //        if (isMetric) dist = ((int)Math.Abs(curve.distanceFromCurrentLine * 0.1)) + " ->";
+            //        else dist = ((int)Math.Abs(curve.distanceFromCurrentLine / 2.54 * 0.1)) + " ->";
+            //        lblDistanceOffLine.Text = dist;
+            //    }
+            //    else
+            //    {
+            //        lblDistanceOffLine.ForeColor = Color.Red;
+            //        if (isMetric) dist = "<- " + ((int)Math.Abs(curve.distanceFromCurrentLine * 0.1));
+            //        else dist = "<- " + ((int)Math.Abs(curve.distanceFromCurrentLine / 2.54 * 0.1));
+            //        lblDistanceOffLine.Text = dist;
+            //    }
+            //}
         }
 
         private void DrawRollBar()
@@ -1361,7 +1392,7 @@ namespace AgOpenGPS
         {
             //GL.Translate(0, 0, 0.9);
             ////draw the background when in 3D
-            if (camera.camPitch < -60)
+            if (camera.camPitch < -52)
             {
                 //-10 to -32 (top) is camera pitch range. Set skybox to line up with horizon 
                 double hite = (camera.camPitch + 63) * -0.026;
@@ -1398,35 +1429,38 @@ namespace AgOpenGPS
         private void DrawCompassText()
         {
             string hede = camHeading.ToString("N1");
-            int center = oglMain.Width / 2 - 80 - (int)(((double)(hede.Length) * 0.5) * 16);
-            GL.Color3(0.9760f, 0.960f, 0.83f);
-            font.DrawText(center, 63, hede);
+            int center = oglMain.Width / 2 - 45 - (int)(((double)(hede.Length) * 0.5) * 16);
+            GL.Color3(0.9752f, 0.952f, 0.83f);
+
+            if (isCompassOn)
+            font.DrawText(center, 65, hede, 0.8);
+            else font.DrawText(center, 65, hede, 1.2);
+
         }
 
         private void DrawCompass()
         {
             //Heading text
-            int center = oglMain.Width / 2 - 92;
-            font.DrawText(center, 27, "^");
+            int center = oglMain.Width / 2 - 55;
+            font.DrawText(center-8, 40, "^", 0.8);
 
 
             GL.PushMatrix();
             GL.Enable(EnableCap.Texture2D);
 
             GL.BindTexture(TextureTarget.Texture2D, texture[6]);        // Select Our Texture
-            GL.Color4(0.960f, 0.70f, 0.23f, 0.6);
+            GL.Color4(0.952f, 0.870f, 0.73f, 0.8);
 
-            int rightSide = oglMain.Width / 2;
 
-            GL.Translate(rightSide - 83, 78, 0);
+            GL.Translate(center, 78, 0);
 
             GL.Rotate(-camHeading, 0, 0, 1);
             GL.Begin(PrimitiveType.Quads);              // Build Quad From A Triangle Strip
             {
-                GL.TexCoord2(0, 0); GL.Vertex2(-72, -72); // 
-                GL.TexCoord2(1, 0); GL.Vertex2(72, -72.0); // 
-                GL.TexCoord2(1, 1); GL.Vertex2(72, 72); // 
-                GL.TexCoord2(0, 1); GL.Vertex2(-72, 72); //
+                GL.TexCoord2(0, 0); GL.Vertex2(-52, -52); // 
+                GL.TexCoord2(1, 0); GL.Vertex2(52, -52.0); // 
+                GL.TexCoord2(1, 1); GL.Vertex2(52, 52); // 
+                GL.TexCoord2(0, 1); GL.Vertex2(-52, 52); //
             }
             GL.End();
             GL.Disable(EnableCap.Texture2D);
@@ -1439,19 +1473,18 @@ namespace AgOpenGPS
             GL.Enable(EnableCap.Texture2D);
 
             GL.BindTexture(TextureTarget.Texture2D, texture[7]);        // Select Our Texture
-            GL.Color4(0.960f, 0.70f, 0.23f, 0.6);
+            GL.Color4(0.952f, 0.870f, 0.823f, 0.8);
 
-            int rightSide = oglMain.Width / 2;
-            int bottomSide = oglMain.Height - 80;
+            int bottomSide = oglMain.Height - 55;
 
-            GL.Translate(rightSide - 90, bottomSide, 0);
+            GL.Translate(oglMain.Width / 2 - 60, bottomSide, 0);
 
             GL.Begin(PrimitiveType.Quads);              // Build Quad From A Triangle Strip
             {
-                GL.TexCoord2(0, 0); GL.Vertex2(-80, -80); // 
-                GL.TexCoord2(1, 0); GL.Vertex2(80, -80.0); // 
-                GL.TexCoord2(1, 1); GL.Vertex2(80, 80); // 
-                GL.TexCoord2(0, 1); GL.Vertex2(-80, 80); //
+                GL.TexCoord2(0, 0); GL.Vertex2(-58, -58); // 
+                GL.TexCoord2(1, 0); GL.Vertex2(58, -58.0); // 
+                GL.TexCoord2(1, 1); GL.Vertex2(58, 58); // 
+                GL.TexCoord2(0, 1); GL.Vertex2(-58, 58); //
             }
             GL.End();
             GL.BindTexture(TextureTarget.Texture2D, texture[8]);        // Select Our Texture
@@ -1474,15 +1507,15 @@ namespace AgOpenGPS
                 if (aveSpd > 20) aveSpd = 20;
             }
 
-            GL.Color3(0.960f, 0.70f, 0.23f);
+            GL.Color3(0.952f, 0.70f, 0.23f);
 
             GL.Rotate(angle, 0, 0, 1);
             GL.Begin(PrimitiveType.Quads);              // Build Quad From A Triangle Strip
             {
-                GL.TexCoord2(0, 0); GL.Vertex2(-64, -64); // 
-                GL.TexCoord2(1, 0); GL.Vertex2(64, -64.0); // 
-                GL.TexCoord2(1, 1); GL.Vertex2(64, 64); // 
-                GL.TexCoord2(0, 1); GL.Vertex2(-64, 64); //
+                GL.TexCoord2(0, 0); GL.Vertex2(-48, -48); // 
+                GL.TexCoord2(1, 0); GL.Vertex2(48, -48.0); // 
+                GL.TexCoord2(1, 1); GL.Vertex2(48, 48); // 
+                GL.TexCoord2(0, 1); GL.Vertex2(-48, 48); //
             }
             GL.End();
 
@@ -1657,7 +1690,7 @@ namespace AgOpenGPS
             else
             {
                 //draw patches j= # of sections
-                for (int j = 0; j < vehicle.numSuperSection; j++)
+                for (int j = 0; j < tool.numSuperSection; j++)
                 {
                     //every time the section turns off and on is a new patch
                     int patchCount = section[j].patchList.Count;
@@ -1740,7 +1773,7 @@ namespace AgOpenGPS
         //    GL.Enable(EnableCap.Texture2D);
 
         //    GL.BindTexture(TextureTarget.Texture2D, texture[7]);        // Select Our Texture
-        //    GL.Color4(0.960f, 0.70f, 0.23f, 0.6);
+        //    GL.Color4(0.952f, 0.70f, 0.23f, 0.6);
 
         //    GL.Begin(PrimitiveType.Quads);              // Build Quad From A Triangle Strip
         //    {
@@ -1777,7 +1810,7 @@ namespace AgOpenGPS
         //        if (aveSpd > 20) aveSpd = 20;
         //    }
 
-        //    GL.Color3(0.960f, 0.70f, 0.23f);
+        //    GL.Color3(0.952f, 0.70f, 0.23f);
 
         //    GL.Rotate(angle, 0, 0, 1);
         //    GL.Begin(PrimitiveType.Quads);              // Build Quad From A Triangle Strip
